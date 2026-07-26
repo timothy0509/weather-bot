@@ -1,0 +1,16 @@
+.env
+weather-bot.db
+weather-bot.db-shm
+weather-bot.db-wal
+*.exe
+*.dll
+*.so
+*.dylib
+/bin
+/dist
+vendor/
+.DS_Store
+*.log
+# Build artifacts
+/bot
+/weather-bot
