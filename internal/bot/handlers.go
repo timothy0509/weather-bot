@@ -3,10 +3,13 @@ package bot
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
+	"weather-bot/internal/format"
 	"weather-bot/internal/hko"
 	"weather-bot/internal/i18n"
 )
@@ -72,6 +75,10 @@ func (b *Bot) handleCurrent(i *discordgo.InteractionCreate, lang i18n.Language) 
 		Color: 0x3498DB,
 	}
 
+	if tips, ok := w.SpecialWxTips.(string); ok && tips != "" {
+		embed.Description = tips
+	}
+
 	if hkoReading, ok := hko.ReadingByPlace(w.Temperature, "Hong Kong Observatory"); ok {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   i18n.T("temperature", lang),
@@ -123,7 +130,7 @@ func (b *Bot) handleCurrent(i *discordgo.InteractionCreate, lang i18n.Language) 
 	}
 
 	embed.Footer = &discordgo.MessageEmbedFooter{
-		Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), w.UpdateTime),
+		Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatTime(w.UpdateTime)),
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
 }
@@ -166,18 +173,27 @@ func (b *Bot) handleForecast(i *discordgo.InteractionCreate, lang i18n.Language,
 			minTemp = fmt.Sprintf("%.0f %s", day.ForecastMintemp.Value, day.ForecastMintemp.Unit)
 		}
 
+		value := fmt.Sprintf("%s: %s\n%s: %s\n%s: %s / %s",
+			i18n.T("weather", lang), day.ForecastWeather,
+			i18n.T("wind", lang), day.ForecastWind,
+			i18n.T("temperature", lang), minTemp, maxTemp)
+
+		if day.ForecastMinrh.Value > 0 || day.ForecastMaxrh.Value > 0 {
+			value += fmt.Sprintf("\n%s: %.0f%% – %.0f%%",
+				i18n.T("humidity_range", lang),
+				day.ForecastMinrh.Value, day.ForecastMaxrh.Value)
+		}
+
+		value += fmt.Sprintf("\n%s: %s", i18n.T("psr", lang), day.PSR)
+
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name: day.Week,
-			Value: fmt.Sprintf("%s: %s\n%s: %s\n%s: %s / %s\n%s: %s", 
-				i18n.T("weather", lang), day.ForecastWeather,
-				i18n.T("wind", lang), day.ForecastWind,
-				i18n.T("temperature", lang), minTemp, maxTemp,
-				i18n.T("psr", lang), day.PSR),
+			Name:  format.FormatWeekdayDate(day.ForecastDate),
+			Value: value,
 		})
 	}
 
 	embed.Footer = &discordgo.MessageEmbedFooter{
-		Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), f.UpdateTime),
+		Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatDateTime(f.UpdateTime)),
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
 }
@@ -198,16 +214,29 @@ func (b *Bot) handleWarnings(i *discordgo.InteractionCreate, lang i18n.Language)
 	if len(ws) == 0 {
 		embed.Description = i18n.T("no_active_warnings", lang)
 	} else {
+		var latestUpdate string
 		for code, w := range ws {
 			action := w.ActionCode
 			if action == "" {
 				action = "Active"
 			}
+			value := fmt.Sprintf("%s\n%s\n%s: %s\n%s: %s",
+				w.Type, action,
+				i18n.T("issued_at", lang), format.FormatTime(w.IssueTime),
+				i18n.T("updated_at", lang), format.FormatTime(w.UpdateTime))
 			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-				Name:   fmt.Sprintf("%s (%s)", w.Name, code),
-				Value:  fmt.Sprintf("%s: %s\n%s", w.Type, action, w.UpdateTime),
+				Name:   fmt.Sprintf("%s - %s", code, w.Name),
+				Value:  value,
 				Inline: true,
 			})
+			if w.UpdateTime > latestUpdate {
+				latestUpdate = w.UpdateTime
+			}
+		}
+		if latestUpdate != "" {
+			embed.Footer = &discordgo.MessageEmbedFooter{
+				Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatTime(latestUpdate)),
+			}
 		}
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
@@ -233,7 +262,7 @@ func (b *Bot) handleWarningDetail(i *discordgo.InteractionCreate, lang i18n.Lang
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title: i18n.T("warning_detail", lang),
+		Title: fmt.Sprintf("%s - %s", i18n.T("warning_detail", lang), warningType),
 		Color: 0xE74C3C,
 	}
 
@@ -243,11 +272,12 @@ func (b *Bot) handleWarningDetail(i *discordgo.InteractionCreate, lang i18n.Lang
 			continue
 		}
 		found = true
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   d.WarningStatementCode,
-			Value:  strings.Join(d.Contents, "\n"),
-			Inline: false,
-		})
+		embed.Description = strings.Join(d.Contents, "\n\n")
+		if d.UpdateTime != "" {
+			embed.Footer = &discordgo.MessageEmbedFooter{
+				Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatTime(d.UpdateTime)),
+			}
+		}
 	}
 	if !found {
 		embed.Description = i18n.T("no_active_warnings", lang)
@@ -271,13 +301,21 @@ func (b *Bot) handleRain(i *discordgo.InteractionCreate, lang i18n.Language) {
 	if len(r.HourlyRainfall) == 0 || len(r.HourlyRainfall[0].Data) == 0 {
 		embed.Description = i18n.T("no_data", lang)
 	} else {
-		var sb strings.Builder
 		group := r.HourlyRainfall[0]
-		for _, reading := range group.Data {
+		sorted := make([]hko.RainfallReading, len(group.Data))
+		copy(sorted, group.Data)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Max > sorted[j].Max
+		})
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("**%s**: %s - %.1f %s\n\n",
+			i18n.T("max_rainfall", lang), sorted[0].Place, sorted[0].Max, sorted[0].Unit))
+		for _, reading := range sorted {
 			if sb.Len() > 0 {
 				sb.WriteString("\n")
 			}
-			sb.WriteString(fmt.Sprintf("**%s**: %.1f %s", reading.Place, reading.Max, reading.Unit))
+			sb.WriteString(fmt.Sprintf("%s: %.1f %s", reading.Place, reading.Max, reading.Unit))
 		}
 		embed.Description = sb.String()
 	}
@@ -303,6 +341,10 @@ func (b *Bot) handleUV(i *discordgo.InteractionCreate, lang i18n.Language) {
 		embed.Description = fmt.Sprintf("%s: %.1f", w.UVIndex.Data[0].Place, w.UVIndex.Data[0].Value)
 	} else {
 		embed.Description = i18n.T("no_data", lang)
+	}
+
+	embed.Footer = &discordgo.MessageEmbedFooter{
+		Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatTime(w.UpdateTime)),
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
 }
@@ -331,19 +373,55 @@ func (b *Bot) handleTide(i *discordgo.InteractionCreate, lang i18n.Language, op 
 		Color: 0x1ABC9C,
 	}
 
-	var sb strings.Builder
-	for _, rec := range tides.Records() {
-		if sb.Len() > 0 {
-			sb.WriteString("\n")
-		}
-		sb.WriteString(fmt.Sprintf("%02d:00: %.2f m", rec.Hour, rec.Height))
-	}
-	if sb.Len() == 0 {
+	records := tides.Records()
+	if len(records) == 0 {
 		embed.Description = i18n.T("no_data", lang)
 	} else {
+		highs, lows := findTideExtrema(records)
+
+		var sb strings.Builder
+		if len(highs) > 0 || len(lows) > 0 {
+			var extrema []string
+			for _, h := range highs {
+				extrema = append(extrema, fmt.Sprintf("%s: %02d:00 (%.2f m)", i18n.T("high_tide", lang), h.Hour, h.Height))
+			}
+			for _, l := range lows {
+				extrema = append(extrema, fmt.Sprintf("%s: %02d:00 (%.2f m)", i18n.T("low_tide", lang), l.Hour, l.Height))
+			}
+			sb.WriteString(strings.Join(extrema, " | "))
+			sb.WriteString("\n\n")
+		}
+
+		for i, rec := range records {
+			if i > 0 {
+				if i%4 == 0 {
+					sb.WriteString("\n")
+				} else {
+					sb.WriteString("    ")
+				}
+			}
+			sb.WriteString(fmt.Sprintf("%02d:00 %.2f m", rec.Hour, rec.Height))
+		}
 		embed.Description = sb.String()
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
+}
+
+func findTideExtrema(records []hko.TideRecord) (highs, lows []hko.TideRecord) {
+	if len(records) < 3 {
+		return nil, nil
+	}
+	for i := 1; i < len(records)-1; i++ {
+		prev := records[i-1].Height
+		curr := records[i].Height
+		next := records[i+1].Height
+		if curr > prev && curr > next {
+			highs = append(highs, records[i])
+		} else if curr < prev && curr < next {
+			lows = append(lows, records[i])
+		}
+	}
+	return highs, lows
 }
 
 func (b *Bot) handleLunar(i *discordgo.InteractionCreate, lang i18n.Language) {
@@ -355,8 +433,9 @@ func (b *Bot) handleLunar(i *discordgo.InteractionCreate, lang i18n.Language) {
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title: i18n.T("lunar_calendar", lang),
-		Color: 0x9B59B6,
+		Title:       i18n.T("lunar_calendar", lang),
+		Description: time.Now().Format("2006-01-02"),
+		Color:       0x9B59B6,
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   "Year / 年",
@@ -390,12 +469,24 @@ func (b *Bot) handleEarthquake(i *discordgo.InteractionCreate, lang i18n.Languag
 	if len(results) == 0 {
 		embed.Description = i18n.T("no_earthquake", lang)
 	} else {
+		var latestUpdate string
 		for _, q := range results[:min(3, len(results))] {
+			value := fmt.Sprintf("%s: %s\n%s: %s",
+				i18n.T("time", lang), format.FormatTime(q.PTime),
+				i18n.T("coordinates", lang), format.FormatCoordinates(q.Lat, q.Lon))
 			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-				Name:   fmt.Sprintf("%s %s", i18n.T("magnitude", lang), q.FormatMag()),
-				Value:  fmt.Sprintf("%s: %s\n%s: %s", i18n.T("region", lang), q.Region, i18n.T("time", lang), q.PTime),
+				Name:   fmt.Sprintf("M%s - %s", q.FormatMag(), q.Region),
+				Value:  value,
 				Inline: true,
 			})
+			if q.UpdateTime > latestUpdate {
+				latestUpdate = q.UpdateTime
+			}
+		}
+		if latestUpdate != "" {
+			embed.Footer = &discordgo.MessageEmbedFooter{
+				Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatTime(latestUpdate)),
+			}
 		}
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})

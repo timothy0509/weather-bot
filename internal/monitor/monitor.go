@@ -11,6 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"weather-bot/internal/db"
+	"weather-bot/internal/format"
 	"weather-bot/internal/hko"
 	"weather-bot/internal/i18n"
 )
@@ -173,26 +174,33 @@ func (m *Monitor) sendWarningAlert(code string, w *hko.WarningSummaryWarning, al
 		color = 0x95A5A6
 	}
 
+	description := w.Type
+	info, err := m.hko.GetWarningInfo("en")
+	if err == nil {
+		var contents []string
+		for _, d := range info.Details {
+			if strings.HasPrefix(d.WarningStatementCode, code) {
+				contents = append(contents, d.Contents...)
+			}
+		}
+		if len(contents) > 0 {
+			description = strings.Join(contents, "\n\n")
+		}
+	}
+
+	footerText := ""
+	if alertType == "warning_cancelled" {
+		footerText = fmt.Sprintf("Cancelled at %s", format.FormatTime(w.UpdateTime))
+	} else {
+		footerText = fmt.Sprintf("In effect since %s", format.FormatTime(w.IssueTime))
+	}
+
 	embed := &discordgo.MessageEmbed{
 		Title:       fmt.Sprintf("%s: %s", title, w.Name),
-		Description: w.Type,
+		Description: description,
 		Color:       color,
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "Code",
-				Value:  code,
-				Inline: true,
-			},
-			{
-				Name:   "Action",
-				Value:  w.ActionCode,
-				Inline: true,
-			},
-			{
-				Name:   "Updated",
-				Value:  w.UpdateTime,
-				Inline: false,
-			},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: footerText,
 		},
 	}
 
@@ -232,7 +240,7 @@ func (m *Monitor) checkTips() {
 		Description: latest.Desc,
 		Color:       0xF39C12,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", i18n.EN), latest.UpdateTime),
+			Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", i18n.EN), format.FormatTime(latest.UpdateTime)),
 		},
 	}
 
