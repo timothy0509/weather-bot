@@ -325,16 +325,20 @@ func (m *Monitor) checkTips() {
 }
 
 func (m *Monitor) updateStatus() {
-	// Check only first guild with status enabled. For global bot status,
-	// just use the current weather once any guild has it enabled.
-	settings, err := m.db.AllGuildSettings()
-	if err != nil {
-		m.logger.Warn("failed to get guild settings for status", slog.Any("err", err))
-		return
-	}
-
 	statusEnabled := false
-	for _, gs := range settings {
+	m.session.State.RLock()
+	guilds := make([]string, len(m.session.State.Guilds))
+	for i, g := range m.session.State.Guilds {
+		guilds[i] = g.ID
+	}
+	m.session.State.RUnlock()
+
+	for _, gid := range guilds {
+		gs, err := m.db.GetGuildSettings(gid)
+		if err != nil {
+			m.logger.Warn("failed to get guild settings for status", slog.String("guild_id", gid), slog.Any("err", err))
+			continue
+		}
 		if gs.BotStatusEnabled {
 			statusEnabled = true
 			break
