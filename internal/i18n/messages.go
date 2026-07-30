@@ -252,6 +252,31 @@ var M = map[string]StringSet{
 		TC: "警告已取消",
 		SC: "警告已取消",
 	},
+	"issued_at": {
+		EN: "Issued",
+		TC: "發出時間",
+		SC: "发出时间",
+	},
+	"coordinates": {
+		EN: "Coordinates",
+		TC: "座標",
+		SC: "坐标",
+	},
+	"max_rainfall": {
+		EN: "Max",
+		TC: "最大",
+		SC: "最大",
+	},
+	"high_tide": {
+		EN: "High",
+		TC: "高潮",
+		SC: "高潮",
+	},
+	"low_tide": {
+		EN: "Low",
+		TC: "低潮",
+		SC: "低潮",
+	},
 }
 
 // T looks up a translation by key.
