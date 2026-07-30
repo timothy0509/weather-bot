@@ -3,23 +3,68 @@ package hko
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	baseWeatherURL = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
+	baseWeatherURL    = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
 	baseEarthquakeURL = "https://data.weather.gov.hk/weatherAPI/opendata/earthquake.php"
-	baseOpenDataURL = "https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
-	baseLunarURL = "https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php"
+	baseOpenDataURL   = "https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
+	baseLunarURL      = "https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php"
+
+	maxBodySize  = 5 * 1024 * 1024
+	maxRetries   = 3
+	retryBaseMs  = 500
 )
+
+type cacheEntry struct {
+	data      []byte
+	expiresAt time.Time
+}
+
+type responseCache struct {
+	mu      sync.RWMutex
+	entries map[string]cacheEntry
+}
+
+func (c *responseCache) get(key string) ([]byte, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	e, ok := c.entries[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		return nil, false
+	}
+	cp := make([]byte, len(e.data))
+	copy(cp, e.data)
+	return cp, true
+}
+
+func (c *responseCache) set(key string, data []byte, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[string]cacheEntry)
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	c.entries[key] = cacheEntry{data: cp, expiresAt: time.Now().Add(ttl)}
+}
 
 // Client performs HKO API requests.
 type Client struct {
 	httpClient *http.Client
+	cache      *responseCache
+	flight     singleflight.Group
+	logger     *slog.Logger
 }
 
 // NewClient creates a new HKO API client.
@@ -29,30 +74,113 @@ func NewClient(timeout time.Duration) *Client {
 	}
 	return &Client{
 		httpClient: &http.Client{Timeout: timeout},
+		cache:      &responseCache{},
 	}
+}
+
+// SetLogger sets the logger for the client.
+func (c *Client) SetLogger(l *slog.Logger) {
+	c.logger = l
 }
 
 // Get requests a JSON endpoint and decodes it into v.
 func (c *Client) Get(targetURL string, v interface{}) error {
+	return c.GetWithTTL(targetURL, v, 0)
+}
+
+// GetWithTTL requests a JSON endpoint with response caching.
+func (c *Client) GetWithTTL(targetURL string, v interface{}, ttl time.Duration) error {
+	if ttl > 0 {
+		if cached, ok := c.cache.get(targetURL); ok {
+			return json.Unmarshal(cached, v)
+		}
+	}
+
+	result, err, _ := c.flight.Do(targetURL, func() (interface{}, error) {
+		if ttl > 0 {
+			if cached, ok := c.cache.get(targetURL); ok {
+				return cached, nil
+			}
+		}
+
+		body, err := c.doGet(targetURL)
+		if err != nil {
+			return nil, err
+		}
+
+		if ttl > 0 {
+			c.cache.set(targetURL, body, ttl)
+		}
+		return body, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	raw := result.([]byte)
+	return json.Unmarshal(raw, v)
+}
+
+func (c *Client) doGet(targetURL string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(retryBaseMs*(1<<(attempt-1))) * time.Millisecond
+			time.Sleep(backoff)
+		}
+
+		body, err := c.doRequest(targetURL)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if !isRetryable(err) {
+			return nil, err
+		}
+		if c.logger != nil {
+			c.logger.Warn("HKO request failed, retrying",
+				slog.String("url", targetURL),
+				slog.Int("attempt", attempt+1),
+				slog.Any("err", err))
+		}
+	}
+	return nil, fmt.Errorf("after %d retries: %w", maxRetries, lastErr)
+}
+
+func (c *Client) doRequest(targetURL string) ([]byte, error) {
 	resp, err := c.httpClient.Get(targetURL)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
-		return fmt.Errorf("read body: %w", err)
+		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+		return nil, &httpError{statusCode: resp.StatusCode, body: string(body)}
 	}
 
-	if err := json.Unmarshal(body, v); err != nil {
-		return fmt.Errorf("decode json: %w", err)
+	return body, nil
+}
+
+type httpError struct {
+	statusCode int
+	body       string
+}
+
+func (e *httpError) Error() string {
+	return fmt.Sprintf("unexpected status %d: %s", e.statusCode, e.body)
+}
+
+func isRetryable(err error) bool {
+	var he *httpError
+	if errors.As(err, &he) {
+		return he.statusCode >= 500
 	}
-	return nil
+	return true
 }
 
 // buildWeatherURL builds a URL for the weather API endpoint.
@@ -75,14 +203,6 @@ func languageCode(lang string) string {
 	default:
 		return "en"
 	}
-}
-
-// secondaryLanguage returns the second language for bilingual mode.
-func secondaryLanguage(lang string) string {
-	if lang == "bilingual" {
-		return "tc"
-	}
-	return ""
 }
 
 // StringValue represents a value that can be either a string or number.
@@ -121,7 +241,7 @@ type ReadingGroup struct {
 
 // RainfallGroup groups rainfall data.
 type RainfallGroup struct {
-	Unit string          `json:"unit"`
+	Unit string            `json:"unit"`
 	Data []RainfallReading `json:"data"`
 }
 

@@ -1,27 +1,41 @@
 package hko
 
+import (
+	"encoding/json"
+	"time"
+)
+
+const (
+	ttlCurrentWeather = 60 * time.Second
+	ttlForecast       = 5 * time.Minute
+	ttlWarnings       = 30 * time.Second
+	ttlWarningInfo    = 30 * time.Second
+	ttlTips           = 60 * time.Second
+	ttlRainfall       = 60 * time.Second
+)
+
 // CurrentWeather is the response from dataType=rhrread.
 type CurrentWeather struct {
-	Temperature               ReadingGroup    `json:"temperature"`
-	Humidity                  ReadingGroup    `json:"humidity"`
-	Rainfall                  RainfallGroup   `json:"rainfall"`
-	Icon                      interface{}     `json:"icon"`
-	IconUpdateTime            string          `json:"iconUpdateTime"`
-	UVIndex                   ReadingGroup    `json:"uvindex"`
-	SpecialWxTips             interface{}     `json:"specialWxTips"`
-	WarningMessage            interface{}     `json:"warningMessage"`
-	TCMessage                 interface{}     `json:"tcmessage"`
-	MintempFrom00To09         interface{}     `json:"mintempFrom00To09"`
-	RainfallFrom00To12        interface{}     `json:"rainfallFrom00To12"`
-	RainfallLastMonth         interface{}     `json:"rainfallLastMonth"`
-	RainfallJanuaryToLastMonth interface{}    `json:"rainfallJanuaryToLastMonth"`
-	UpdateTime                string          `json:"updateTime"`
+	Temperature                ReadingGroup    `json:"temperature"`
+	Humidity                   ReadingGroup    `json:"humidity"`
+	Rainfall                   RainfallGroup   `json:"rainfall"`
+	Icon                       json.RawMessage `json:"icon"`
+	IconUpdateTime             string          `json:"iconUpdateTime"`
+	UVIndex                    ReadingGroup    `json:"uvindex"`
+	SpecialWxTips              string          `json:"specialWxTips"`
+	WarningMessage             string          `json:"warningMessage"`
+	TCMessage                  string          `json:"tcmessage"`
+	MintempFrom00To09          json.RawMessage `json:"mintempFrom00To09"`
+	RainfallFrom00To12         json.RawMessage `json:"rainfallFrom00To12"`
+	RainfallLastMonth          json.RawMessage `json:"rainfallLastMonth"`
+	RainfallJanuaryToLastMonth json.RawMessage `json:"rainfallJanuaryToLastMonth"`
+	UpdateTime                 string          `json:"updateTime"`
 }
 
 // GetCurrentWeather fetches current weather.
 func (c *Client) GetCurrentWeather(lang string) (*CurrentWeather, error) {
 	var res CurrentWeather
-	if err := c.Get(buildWeatherURL("rhrread", languageCode(lang)), &res); err != nil {
+	if err := c.GetWithTTL(buildWeatherURL("rhrread", languageCode(lang)), &res, ttlCurrentWeather); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -29,16 +43,16 @@ func (c *Client) GetCurrentWeather(lang string) (*CurrentWeather, error) {
 
 // ForecastDay is a single day in the 9-day forecast.
 type ForecastDay struct {
-	ForecastDate     string      `json:"forecastDate"`
-	Week             string      `json:"week"`
-	ForecastWind     string      `json:"forecastWind"`
-	ForecastWeather  string      `json:"forecastWeather"`
-	ForecastMaxtemp  NumberValue `json:"forecastMaxtemp"`
-	ForecastMintemp  NumberValue `json:"forecastMintemp"`
-	ForecastMaxrh    NumberValue `json:"forecastMaxrh"`
-	ForecastMinrh    NumberValue `json:"forecastMinrh"`
-	ForecastIcon     int         `json:"ForecastIcon"`
-	PSR              string      `json:"PSR"`
+	ForecastDate    string      `json:"forecastDate"`
+	Week            string      `json:"week"`
+	ForecastWind    string      `json:"forecastWind"`
+	ForecastWeather string      `json:"forecastWeather"`
+	ForecastMaxtemp NumberValue `json:"forecastMaxtemp"`
+	ForecastMintemp NumberValue `json:"forecastMintemp"`
+	ForecastMaxrh   NumberValue `json:"forecastMaxrh"`
+	ForecastMinrh   NumberValue `json:"forecastMinrh"`
+	ForecastIcon    int         `json:"ForecastIcon"`
+	PSR             string      `json:"PSR"`
 }
 
 // ForecastResponse is the response from dataType=fnd.
@@ -46,34 +60,14 @@ type ForecastResponse struct {
 	GeneralSituation string        `json:"generalSituation"`
 	WeatherForecast  []ForecastDay `json:"weatherForecast"`
 	UpdateTime       string        `json:"updateTime"`
-	SeaTemp          interface{}   `json:"seaTemp,omitempty"`
-	SoilTemp         interface{}   `json:"soilTemp,omitempty"`
+	SeaTemp          json.RawMessage `json:"seaTemp,omitempty"`
+	SoilTemp         json.RawMessage `json:"soilTemp,omitempty"`
 }
 
 // GetForecast fetches the 9-day weather forecast.
 func (c *Client) GetForecast(lang string) (*ForecastResponse, error) {
 	var res ForecastResponse
-	if err := c.Get(buildWeatherURL("fnd", languageCode(lang)), &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-// LocalForecast is the response from dataType=flw.
-type LocalForecast struct {
-	GeneralSituation string `json:"generalSituation"`
-	TCInfo           string `json:"tcInfo"`
-	FireDangerWarning string `json:"fireDangerWarning"`
-	ForecastPeriod   string `json:"forecastPeriod"`
-	ForecastDesc     string `json:"forecastDesc"`
-	Outlook          string `json:"outlook"`
-	UpdateTime       string `json:"updateTime"`
-}
-
-// GetLocalForecast fetches the local weather forecast.
-func (c *Client) GetLocalForecast(lang string) (*LocalForecast, error) {
-	var res LocalForecast
-	if err := c.Get(buildWeatherURL("flw", languageCode(lang)), &res); err != nil {
+	if err := c.GetWithTTL(buildWeatherURL("fnd", languageCode(lang)), &res, ttlForecast); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -96,7 +90,7 @@ type WarningSummary map[string]*WarningSummaryWarning
 // GetWarningSummary fetches the warning summary.
 func (c *Client) GetWarningSummary(lang string) (WarningSummary, error) {
 	var res WarningSummary
-	if err := c.Get(buildWeatherURL("warnsum", languageCode(lang)), &res); err != nil {
+	if err := c.GetWithTTL(buildWeatherURL("warnsum", languageCode(lang)), &res, ttlWarnings); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -118,7 +112,7 @@ type WarningInfo struct {
 // GetWarningInfo fetches detailed warning information.
 func (c *Client) GetWarningInfo(lang string) (*WarningInfo, error) {
 	var res WarningInfo
-	if err := c.Get(buildWeatherURL("warningInfo", languageCode(lang)), &res); err != nil {
+	if err := c.GetWithTTL(buildWeatherURL("warningInfo", languageCode(lang)), &res, ttlWarningInfo); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -138,7 +132,7 @@ type SWTResponse struct {
 // GetSpecialWeatherTips fetches special weather tips.
 func (c *Client) GetSpecialWeatherTips(lang string) (*SWTResponse, error) {
 	var res SWTResponse
-	if err := c.Get(buildWeatherURL("swt", languageCode(lang)), &res); err != nil {
+	if err := c.GetWithTTL(buildWeatherURL("swt", languageCode(lang)), &res, ttlTips); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -152,7 +146,7 @@ type HourlyRainfallResponse struct {
 // GetHourlyRainfall fetches hourly rainfall data.
 func (c *Client) GetHourlyRainfall(lang string) (*HourlyRainfallResponse, error) {
 	var res HourlyRainfallResponse
-	if err := c.Get(buildWeatherURL("hourlyRainfall", languageCode(lang)), &res); err != nil {
+	if err := c.GetWithTTL(buildWeatherURL("hourlyRainfall", languageCode(lang)), &res, ttlRainfall); err != nil {
 		return nil, err
 	}
 	return &res, nil

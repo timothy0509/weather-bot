@@ -2,16 +2,17 @@ package format
 
 import (
 	"fmt"
-	"math"
 	"time"
 )
+
+var hkt = time.FixedZone("HKT", 8*60*60)
 
 func FormatTime(iso string) string {
 	t, err := time.Parse(time.RFC3339, iso)
 	if err != nil {
 		return iso
 	}
-	return t.Format("15:04")
+	return t.In(hkt).Format("15:04")
 }
 
 func FormatDateTime(iso string) string {
@@ -19,7 +20,7 @@ func FormatDateTime(iso string) string {
 	if err != nil {
 		return iso
 	}
-	return t.Format("Jan 2, 15:04")
+	return t.In(hkt).Format("Jan 2, 15:04")
 }
 
 func FormatWeekdayDate(yyyymmdd string) string {
@@ -27,7 +28,7 @@ func FormatWeekdayDate(yyyymmdd string) string {
 	if err != nil {
 		return yyyymmdd
 	}
-	return t.Format("Mon 2 Jan")
+	return t.In(hkt).Format("Mon 2 Jan")
 }
 
 func FormatCoordinates(lat, lon float64) string {
@@ -44,33 +45,10 @@ func FormatCoordinates(lat, lon float64) string {
 	return fmt.Sprintf("%.1f°%s, %.1f°%s", lat, ns, lon, ew)
 }
 
-func FormatRelative(iso string) string {
-	t, err := time.Parse(time.RFC3339, iso)
-	if err != nil {
-		return iso
+func TruncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
 	}
-	d := time.Since(t)
-	if d < 0 {
-		return FormatDateTime(iso)
-	}
-	if d < time.Minute {
-		return "just now"
-	}
-	if d < time.Hour {
-		mins := int(math.Round(d.Minutes()))
-		return fmt.Sprintf("%d min ago", mins)
-	}
-	if d < 48*time.Hour {
-		hours := int(math.Round(d.Hours()))
-		return fmt.Sprintf("%d hours ago", hours)
-	}
-	return FormatDateTime(iso)
-}
-
-func FormatDate(yyyymmdd string) string {
-	t, err := time.Parse("20060102", yyyymmdd)
-	if err != nil {
-		return yyyymmdd
-	}
-	return t.Format("Jan 2")
+	return string(runes[:max-3]) + "..."
 }

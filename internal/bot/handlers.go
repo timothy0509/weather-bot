@@ -15,22 +15,23 @@ import (
 )
 
 func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionApplicationCommand {
-		return
-	}
-	data := i.ApplicationCommandData()
-
-	switch data.Name {
-	case "weather":
-		b.handleWeatherCommand(i, data)
-	case "setup":
-		b.handleSetupCommand(i, data)
+	switch i.Type {
+	case discordgo.InteractionApplicationCommand:
+		data := i.ApplicationCommandData()
+		switch data.Name {
+		case "weather":
+			b.handleWeatherCommand(i, data)
+		case "setup":
+			b.handleSetupCommand(i, data)
+		}
+	case discordgo.InteractionApplicationCommandAutocomplete:
+		b.handleAutocomplete(i)
 	}
 }
 
 func (b *Bot) handleWeatherCommand(i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
 	if len(data.Options) == 0 {
-		b.respond(i, "Unknown command")
+		b.respond(i, i18n.T("unknown_command", b.guildLanguage(i.GuildID)))
 		return
 	}
 	op := data.Options[0]
@@ -58,8 +59,18 @@ func (b *Bot) handleWeatherCommand(i *discordgo.InteractionCreate, data discordg
 	case "earthquake":
 		b.handleEarthquake(i, lang)
 	default:
-		b.respond(i, "Unknown command")
+		b.respond(i, i18n.T("unknown_command", lang))
 	}
+}
+
+func firstReading(rg hko.ReadingGroup, preferredPlace string) (hko.Reading, bool) {
+	if r, ok := hko.ReadingByPlace(rg, preferredPlace); ok {
+		return r, true
+	}
+	if len(rg.Data) > 0 {
+		return rg.Data[0], true
+	}
+	return hko.Reading{}, false
 }
 
 func (b *Bot) handleCurrent(i *discordgo.InteractionCreate, lang i18n.Language) {
@@ -75,34 +86,22 @@ func (b *Bot) handleCurrent(i *discordgo.InteractionCreate, lang i18n.Language) 
 		Color: 0x3498DB,
 	}
 
-	if tips, ok := w.SpecialWxTips.(string); ok && tips != "" {
-		embed.Description = tips
+	if w.SpecialWxTips != "" {
+		embed.Description = w.SpecialWxTips
 	}
 
-	if hkoReading, ok := hko.ReadingByPlace(w.Temperature, "Hong Kong Observatory"); ok {
+	if r, ok := firstReading(w.Temperature, "Hong Kong Observatory"); ok {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   i18n.T("temperature", lang),
-			Value:  hkoReading.FormatTemperature(),
-			Inline: true,
-		})
-	} else if len(w.Temperature.Data) > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   i18n.T("temperature", lang),
-			Value:  w.Temperature.Data[0].FormatTemperature(),
+			Value:  r.FormatTemperature(),
 			Inline: true,
 		})
 	}
 
-	if hkoReading, ok := hko.ReadingByPlace(w.Humidity, "Hong Kong Observatory"); ok {
+	if r, ok := firstReading(w.Humidity, "Hong Kong Observatory"); ok {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   i18n.T("humidity", lang),
-			Value:  fmt.Sprintf("%.0f%%", hkoReading.Value),
-			Inline: true,
-		})
-	} else if len(w.Humidity.Data) > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   i18n.T("humidity", lang),
-			Value:  fmt.Sprintf("%.0f%%", w.Humidity.Data[0].Value),
+			Value:  fmt.Sprintf("%.0f%%", r.Value),
 			Inline: true,
 		})
 	}
@@ -115,16 +114,10 @@ func (b *Bot) handleCurrent(i *discordgo.InteractionCreate, lang i18n.Language) 
 		})
 	}
 
-	if hkoReading, ok := hko.ReadingByPlace(w.UVIndex, "King's Park"); ok {
+	if r, ok := firstReading(w.UVIndex, "King's Park"); ok {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   i18n.T("uv_index", lang),
-			Value:  fmt.Sprintf("%.1f", hkoReading.Value),
-			Inline: true,
-		})
-	} else if len(w.UVIndex.Data) > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   i18n.T("uv_index", lang),
-			Value:  fmt.Sprintf("%.1f", w.UVIndex.Data[0].Value),
+			Value:  fmt.Sprintf("%.1f", r.Value),
 			Inline: true,
 		})
 	}
@@ -136,10 +129,11 @@ func (b *Bot) handleCurrent(i *discordgo.InteractionCreate, lang i18n.Language) 
 }
 
 func (b *Bot) handleForecast(i *discordgo.InteractionCreate, lang i18n.Language, days int) {
+	_ = b.deferRespond(i)
 	f, err := b.HKO.GetForecast(string(lang))
 	if err != nil {
 		b.Logger.Error("forecast failed", slog.Any("err", err))
-		b.respond(i, i18n.T("error_fetching_data", lang))
+		b.followUpError(i, i18n.T("error_fetching_data", lang))
 		return
 	}
 
@@ -195,14 +189,15 @@ func (b *Bot) handleForecast(i *discordgo.InteractionCreate, lang i18n.Language,
 	embed.Footer = &discordgo.MessageEmbedFooter{
 		Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatDateTime(f.UpdateTime)),
 	}
-	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
+	b.followUp(i, []*discordgo.MessageEmbed{embed})
 }
 
 func (b *Bot) handleWarnings(i *discordgo.InteractionCreate, lang i18n.Language) {
+	_ = b.deferRespond(i)
 	ws, err := b.HKO.GetWarningSummary(string(lang))
 	if err != nil {
 		b.Logger.Error("warning summary failed", slog.Any("err", err))
-		b.respond(i, i18n.T("error_fetching_data", lang))
+		b.followUpError(i, i18n.T("error_fetching_data", lang))
 		return
 	}
 
@@ -240,9 +235,7 @@ func (b *Bot) handleWarnings(i *discordgo.InteractionCreate, lang i18n.Language)
 					value += "\n\n" + detail
 				}
 			}
-			if len(value) > 1024 {
-				value = value[:1021] + "..."
-			}
+			value = format.TruncateRunes(value, 1024)
 			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 				Name:   fmt.Sprintf("%s - %s", code, w.Name),
 				Value:  value,
@@ -258,7 +251,7 @@ func (b *Bot) handleWarnings(i *discordgo.InteractionCreate, lang i18n.Language)
 			}
 		}
 	}
-	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
+	b.followUp(i, []*discordgo.MessageEmbed{embed})
 }
 
 func (b *Bot) handleWarningDetail(i *discordgo.InteractionCreate, lang i18n.Language, op *discordgo.ApplicationCommandInteractionDataOption) {
@@ -269,14 +262,15 @@ func (b *Bot) handleWarningDetail(i *discordgo.InteractionCreate, lang i18n.Lang
 		}
 	}
 	if warningType == "" {
-		b.respond(i, "Please provide a warning type.")
+		b.respond(i, i18n.T("warning_type_required", lang))
 		return
 	}
+	_ = b.deferRespond(i)
 
 	info, err := b.HKO.GetWarningInfo(string(lang))
 	if err != nil {
 		b.Logger.Error("warning info failed", slog.Any("err", err))
-		b.respond(i, i18n.T("error_fetching_data", lang))
+		b.followUpError(i, i18n.T("error_fetching_data", lang))
 		return
 	}
 
@@ -301,7 +295,7 @@ func (b *Bot) handleWarningDetail(i *discordgo.InteractionCreate, lang i18n.Lang
 	if !found {
 		embed.Description = i18n.T("no_active_warnings", lang)
 	}
-	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
+	b.followUp(i, []*discordgo.MessageEmbed{embed})
 }
 
 func (b *Bot) handleRain(i *discordgo.InteractionCreate, lang i18n.Language) {
@@ -509,11 +503,4 @@ func (b *Bot) handleEarthquake(i *discordgo.InteractionCreate, lang i18n.Languag
 		}
 	}
 	b.respondEmbed(i, []*discordgo.MessageEmbed{embed})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

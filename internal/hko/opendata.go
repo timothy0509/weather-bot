@@ -21,11 +21,6 @@ type TideRecord struct {
 	Height float64
 }
 
-// Station returns the station that was queried. This is not provided by the API.
-func (t *TideResponse) Station() string {
-	return ""
-}
-
 // Records parses the tabular data into a slice of records for today.
 func (t *TideResponse) Records() []TideRecord {
 	if len(t.Fields) < 3 || len(t.Data) == 0 {
@@ -76,7 +71,7 @@ func (c *Client) GetTides(station, lang string) (*TideResponse, error) {
 	u.RawQuery = q.Encode()
 
 	var res TideResponse
-	if err := c.Get(u.String(), &res); err != nil {
+	if err := c.GetWithTTL(u.String(), &res, ttlTides); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -96,7 +91,7 @@ func (c *Client) GetLunarCalendar(date string) (*LunarResponse, error) {
 	u.RawQuery = q.Encode()
 
 	var res LunarResponse
-	if err := c.Get(u.String(), &res); err != nil {
+	if err := c.GetWithTTL(u.String(), &res, ttlLunar); err != nil {
 		return nil, err
 	}
 	return &res, nil

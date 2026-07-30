@@ -277,6 +277,36 @@ var M = map[string]StringSet{
 		TC: "低潮",
 		SC: "低潮",
 	},
+	"unknown_command": {
+		EN: "Unknown command",
+		TC: "未知指令",
+		SC: "未知指令",
+	},
+	"unknown_setup_command": {
+		EN: "Unknown setup command",
+		TC: "未知設定指令",
+		SC: "未知设定指令",
+	},
+	"warning_type_required": {
+		EN: "Please provide a warning type.",
+		TC: "請提供警告代碼。",
+		SC: "请提供警告代码。",
+	},
+	"invalid_language_mode": {
+		EN: "Invalid language mode. Use en, tc, sc, or bilingual.",
+		TC: "無效的語言模式。請使用 en、tc、sc 或 bilingual。",
+		SC: "无效的语言模式。请使用 en、tc、sc 或 bilingual。",
+	},
+	"cancelled_at": {
+		EN: "Cancelled at",
+		TC: "取消時間",
+		SC: "取消时间",
+	},
+	"in_effect_since": {
+		EN: "In effect since",
+		TC: "生效時間",
+		SC: "生效时间",
+	},
 }
 
 // T looks up a translation by key.

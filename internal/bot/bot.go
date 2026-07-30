@@ -50,7 +50,27 @@ func (b *Bot) RegisterCommands() error {
 
 // RegisterHandlers registers Discord interaction handlers.
 func (b *Bot) RegisterHandlers() {
-	b.Session.AddHandler(b.handleInteraction)
+	b.Session.AddHandler(func(s *discordgo.Session, ic *discordgo.InteractionCreate) {
+		defer func() {
+			if r := recover(); r != nil {
+				b.Logger.Error("handler panic recovered", slog.Any("panic", r))
+				_ = s.InteractionRespond(ic.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "An internal error occurred.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+			}
+		}()
+		b.handleInteraction(s, ic)
+	})
+
+	b.Session.AddHandler(func(s *discordgo.Session, g *discordgo.GuildDelete) {
+		if err := b.DB.DeleteGuildSettings(g.ID); err != nil {
+			b.Logger.Warn("failed to clean up guild settings", slog.String("guild_id", g.ID), slog.Any("err", err))
+		}
+	})
 }
 
 // guildLanguage returns the configured language for a guild.
@@ -93,5 +113,32 @@ func (b *Bot) respondEmbed(i *discordgo.InteractionCreate, embeds []*discordgo.M
 		},
 	}); err != nil {
 		b.Logger.Error("failed to respond embed", slog.Any("err", err))
+	}
+}
+
+// deferRespond sends a deferred response to buy time for slow commands.
+func (b *Bot) deferRespond(i *discordgo.InteractionCreate) error {
+	return b.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+}
+
+// followUp edits the deferred response with embeds.
+func (b *Bot) followUp(i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed) {
+	_, err := b.Session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &embeds,
+	})
+	if err != nil {
+		b.Logger.Error("failed to edit follow-up", slog.Any("err", err))
+	}
+}
+
+// followUpError edits the deferred response with an error message.
+func (b *Bot) followUpError(i *discordgo.InteractionCreate, content string) {
+	_, err := b.Session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+	})
+	if err != nil {
+		b.Logger.Error("failed to edit follow-up error", slog.Any("err", err))
 	}
 }

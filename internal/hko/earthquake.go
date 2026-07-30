@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	ttlEarthquake = 60 * time.Second
+	ttlTides      = 1 * time.Hour
+	ttlLunar      = 24 * time.Hour
+)
+
 // EarthquakeInfo is a single earthquake report.
 type EarthquakeInfo struct {
 	Lat        float64 `json:"lat"`
@@ -32,7 +38,7 @@ func (c *Client) GetEarthquakeInfo(lang string) (*EarthquakeResponse, error) {
 	u.RawQuery = q.Encode()
 
 	var res EarthquakeResponse
-	if err := c.Get(u.String(), &res); err != nil {
+	if err := c.GetWithTTL(u.String(), &res, ttlEarthquake); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -49,42 +55,9 @@ func (e *EarthquakeResponse) Results() []EarthquakeInfo {
 	return nil
 }
 
-// FeltEarthquakeInfo is a felt earthquake report.
-type FeltEarthquakeInfo struct {
-	Mag        float64 `json:"mag"`
-	Region     string  `json:"region"`
-	Intensity  string  `json:"intensity"`
-	Lat        float64 `json:"lat"`
-	Lon        float64 `json:"lon"`
-	Details    string  `json:"details"`
-	PTime      string  `json:"ptime"`
-	UpdateTime string  `json:"updateTime"`
-}
-
-// FeltEarthquakeResponse is the response from dataType=feltearthquake.
-type FeltEarthquakeResponse struct {
-	Data []FeltEarthquakeInfo `json:"data"`
-}
-
-// GetFeltEarthquakeInfo fetches locally felt earthquakes.
-func (c *Client) GetFeltEarthquakeInfo(lang string) (*FeltEarthquakeResponse, error) {
-	u, _ := url.Parse(baseEarthquakeURL)
-	q := u.Query()
-	q.Set("dataType", "feltearthquake")
-	q.Set("lang", languageCode(lang))
-	u.RawQuery = q.Encode()
-
-	var res FeltEarthquakeResponse
-	if err := c.Get(u.String(), &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-// ValidateTime validates a time for earthquake API.
-func (e *EarthquakeInfo) Time() time.Time {
-	t, _ := time.Parse(time.RFC3339, e.PTime)
-	return t
+// Time parses the earthquake time.
+func (e *EarthquakeInfo) Time() (time.Time, error) {
+	return time.Parse(time.RFC3339, e.PTime)
 }
 
 // FormatMag formats the magnitude.

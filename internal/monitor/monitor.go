@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"golang.org/x/time/rate"
 
 	"weather-bot/internal/db"
 	"weather-bot/internal/format"
@@ -23,6 +25,13 @@ type Monitor struct {
 	hko     *hko.Client
 	logger  *slog.Logger
 	cfg     Intervals
+	wg      sync.WaitGroup
+	limiter *rate.Limiter
+
+	mu              sync.Mutex
+	lastWarningPoll time.Time
+	lastTipsPoll    time.Time
+	lastStatusPoll  time.Time
 }
 
 // Intervals holds polling intervals.
@@ -40,19 +49,37 @@ func New(session *discordgo.Session, database *db.DB, client *hko.Client, logger
 		hko:     client,
 		logger:  logger,
 		cfg:     cfg,
+		limiter: rate.NewLimiter(1, 3),
 	}
 }
 
 // Start begins all background loops.
 func (m *Monitor) Start(ctx context.Context) {
-	go m.warningLoop(ctx)
-	go m.tipsLoop(ctx)
-	go m.statusLoop(ctx)
+	m.wg.Add(3)
+	go func() {
+		defer m.wg.Done()
+		m.warningLoop(ctx)
+	}()
+	go func() {
+		defer m.wg.Done()
+		m.tipsLoop(ctx)
+	}()
+	go func() {
+		defer m.wg.Done()
+		m.statusLoop(ctx)
+	}()
+}
+
+// Wait blocks until all background loops have stopped.
+func (m *Monitor) Wait() {
+	m.wg.Wait()
 }
 
 func (m *Monitor) warningLoop(ctx context.Context) {
 	ticker := time.NewTicker(m.cfg.Warning)
 	defer ticker.Stop()
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	defer cleanupTicker.Stop()
 	m.checkWarnings()
 	for {
 		select {
@@ -60,6 +87,10 @@ func (m *Monitor) warningLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			m.checkWarnings()
+		case <-cleanupTicker.C:
+			if err := m.db.CleanupOldStates(); err != nil {
+				m.logger.Warn("state cleanup failed", slog.Any("err", err))
+			}
 		}
 	}
 }
@@ -92,12 +123,22 @@ func (m *Monitor) statusLoop(ctx context.Context) {
 	}
 }
 
+// Health returns the last successful poll times for each loop.
+func (m *Monitor) Health() (warning, tips, status time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastWarningPoll, m.lastTipsPoll, m.lastStatusPoll
+}
+
 func (m *Monitor) checkWarnings() {
 	ws, err := m.hko.GetWarningSummary("en")
 	if err != nil {
 		m.logger.Warn("warning summary poll failed", slog.Any("err", err))
 		return
 	}
+	m.mu.Lock()
+	m.lastWarningPoll = time.Now()
+	m.mu.Unlock()
 
 	for code, w := range ws {
 		state, err := m.db.GetWarningState(code)
@@ -168,47 +209,52 @@ func (m *Monitor) sendWarningAlert(code string, w *hko.WarningSummaryWarning, al
 		return
 	}
 
-	title := i18n.T(alertType, i18n.EN)
-	color := 0xE74C3C
-	if alertType == "warning_cancelled" {
-		color = 0x95A5A6
-	}
-
-	description := w.Type
-	info, err := m.hko.GetWarningInfo("en")
-	if err == nil {
-		var contents []string
-		for _, d := range info.Details {
-			if strings.HasPrefix(d.WarningStatementCode, code) {
-				contents = append(contents, d.Contents...)
-			}
-		}
-		if len(contents) > 0 {
-			description = strings.Join(contents, "\n\n")
-		}
-	}
-
-	footerText := ""
-	if alertType == "warning_cancelled" {
-		footerText = fmt.Sprintf("Cancelled at %s", format.FormatTime(w.UpdateTime))
-	} else {
-		footerText = fmt.Sprintf("In effect since %s", format.FormatTime(w.IssueTime))
-	}
-
-	embed := &discordgo.MessageEmbed{
-		Title:       fmt.Sprintf("%s: %s", title, w.Name),
-		Description: description,
-		Color:       color,
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: footerText,
-		},
-	}
-
 	for _, gs := range settings {
 		if !gs.AlertChannelID.Valid {
 			continue
 		}
-		_, err := m.session.ChannelMessageSendEmbed(gs.AlertChannelID.String, embed)
+		lang := i18n.Normalize(gs.Language)
+
+		title := i18n.T(alertType, lang)
+		color := 0xE74C3C
+		if alertType == "warning_cancelled" {
+			color = 0x95A5A6
+		}
+
+		description := w.Type
+		info, err := m.hko.GetWarningInfo(string(lang))
+		if err == nil {
+			var contents []string
+			for _, d := range info.Details {
+				if strings.HasPrefix(d.WarningStatementCode, code) {
+					contents = append(contents, d.Contents...)
+				}
+			}
+			if len(contents) > 0 {
+				description = strings.Join(contents, "\n\n")
+			}
+		}
+
+		footerText := ""
+		if alertType == "warning_cancelled" {
+			footerText = fmt.Sprintf("%s %s", i18n.T("cancelled_at", lang), format.FormatTime(w.UpdateTime))
+		} else {
+			footerText = fmt.Sprintf("%s %s", i18n.T("in_effect_since", lang), format.FormatTime(w.IssueTime))
+		}
+
+		embed := &discordgo.MessageEmbed{
+			Title:       fmt.Sprintf("%s: %s", title, w.Name),
+			Description: description,
+			Color:       color,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: footerText,
+			},
+		}
+
+		if err := m.limiter.Wait(context.Background()); err != nil {
+			return
+		}
+		_, err = m.session.ChannelMessageSendEmbed(gs.AlertChannelID.String, embed)
 		if err != nil {
 			m.logger.Warn("failed to send warning alert", slog.Any("err", err))
 		}
@@ -221,6 +267,9 @@ func (m *Monitor) checkTips() {
 		m.logger.Warn("tips poll failed", slog.Any("err", err))
 		return
 	}
+	m.mu.Lock()
+	m.lastTipsPoll = time.Now()
+	m.mu.Unlock()
 	if len(tips.SWT) == 0 {
 		return
 	}
@@ -235,15 +284,6 @@ func (m *Monitor) checkTips() {
 		return
 	}
 
-	embed := &discordgo.MessageEmbed{
-		Title:       i18n.T("special_tips", i18n.EN),
-		Description: latest.Desc,
-		Color:       0xF39C12,
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", i18n.EN), format.FormatTime(latest.UpdateTime)),
-		},
-	}
-
 	settings, err := m.db.AllGuildSettings()
 	if err != nil {
 		m.logger.Warn("failed to get guild settings for tips", slog.Any("err", err))
@@ -253,7 +293,27 @@ func (m *Monitor) checkTips() {
 		if !gs.AlertChannelID.Valid {
 			continue
 		}
-		_, err := m.session.ChannelMessageSendEmbed(gs.AlertChannelID.String, embed)
+		lang := i18n.Normalize(gs.Language)
+
+		tipsLocalized, err := m.hko.GetSpecialWeatherTips(string(lang))
+		desc := latest.Desc
+		if err == nil && len(tipsLocalized.SWT) > 0 {
+			desc = tipsLocalized.SWT[0].Desc
+		}
+
+		embed := &discordgo.MessageEmbed{
+			Title:       i18n.T("special_tips", lang),
+			Description: desc,
+			Color:       0xF39C12,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: fmt.Sprintf("%s: %s", i18n.T("updated_at", lang), format.FormatTime(latest.UpdateTime)),
+			},
+		}
+
+		if err := m.limiter.Wait(context.Background()); err != nil {
+			return
+		}
+		_, err = m.session.ChannelMessageSendEmbed(gs.AlertChannelID.String, embed)
 		if err != nil {
 			m.logger.Warn("failed to send tips alert", slog.Any("err", err))
 		}
@@ -289,6 +349,9 @@ func (m *Monitor) updateStatus() {
 		m.logger.Warn("status update weather fetch failed", slog.Any("err", err))
 		return
 	}
+	m.mu.Lock()
+	m.lastStatusPoll = time.Now()
+	m.mu.Unlock()
 
 	var status string
 	if r, ok := hko.ReadingByPlace(w.Temperature, "Hong Kong Observatory"); ok {
@@ -306,9 +369,4 @@ func (m *Monitor) updateStatus() {
 	if err := m.session.UpdateGameStatus(0, status); err != nil {
 		m.logger.Warn("failed to update bot status", slog.Any("err", err))
 	}
-}
-
-// stringsContains reports whether s contains x.
-func stringsContains(s, x string) bool {
-	return strings.Contains(s, x)
 }
