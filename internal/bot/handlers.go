@@ -211,6 +211,17 @@ func (b *Bot) handleWarnings(i *discordgo.InteractionCreate, lang i18n.Language)
 		Color: 0xE74C3C,
 	}
 
+	var detailMap map[string]string
+	info, err := b.HKO.GetWarningInfo(string(lang))
+	if err == nil && info != nil {
+		detailMap = make(map[string]string)
+		for _, d := range info.Details {
+			if len(d.Contents) > 0 {
+				detailMap[d.WarningStatementCode] = strings.Join(d.Contents, "\n\n")
+			}
+		}
+	}
+
 	if len(ws) == 0 {
 		embed.Description = i18n.T("no_active_warnings", lang)
 	} else {
@@ -224,6 +235,14 @@ func (b *Bot) handleWarnings(i *discordgo.InteractionCreate, lang i18n.Language)
 				w.Type, action,
 				i18n.T("issued_at", lang), format.FormatTime(w.IssueTime),
 				i18n.T("updated_at", lang), format.FormatTime(w.UpdateTime))
+			if detailMap != nil {
+				if detail, ok := detailMap[code]; ok {
+					value += "\n\n" + detail
+				}
+			}
+			if len(value) > 1024 {
+				value = value[:1021] + "..."
+			}
 			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 				Name:   fmt.Sprintf("%s - %s", code, w.Name),
 				Value:  value,
