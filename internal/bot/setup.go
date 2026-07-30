@@ -14,7 +14,7 @@ func (b *Bot) handleSetupCommand(i *discordgo.InteractionCreate, data discordgo.
 	lang := b.guildLanguage(i.GuildID)
 
 	if len(data.Options) == 0 {
-		b.respond(i, "Unknown setup command")
+		b.respond(i, i18n.T("unknown_setup_command", lang))
 		return
 	}
 	op := data.Options[0]
@@ -31,7 +31,7 @@ func (b *Bot) handleSetupCommand(i *discordgo.InteractionCreate, data discordgo.
 	case "status":
 		b.handleSetupStatus(i, lang, op)
 	default:
-		b.respond(i, "Unknown setup command")
+		b.respond(i, i18n.T("unknown_setup_command", lang))
 	}
 }
 
@@ -89,7 +89,7 @@ func (b *Bot) handleSetupLanguage(i *discordgo.InteractionCreate, lang i18n.Lang
 		}
 	}
 	if !i18n.IsValid(mode) {
-		b.respond(i, "Invalid language mode")
+		b.respond(i, i18n.T("invalid_language_mode", lang))
 		return
 	}
 	if err := b.DB.SetLanguage(i.GuildID, mode); err != nil {
@@ -110,7 +110,11 @@ func (b *Bot) handleSetupAlerts(i *discordgo.InteractionCreate, lang i18n.Langua
 	}
 	for _, opt := range op.Options {
 		if opt.Name == "channel" {
-			channelID := opt.Value.(string)
+			channelID, ok := opt.Value.(string)
+			if !ok {
+				b.respond(i, i18n.T("error_fetching_data", lang))
+				return
+			}
 			if err := b.DB.SetAlertChannel(i.GuildID, channelID); err != nil {
 				b.respond(i, i18n.T("error_fetching_data", lang))
 				return

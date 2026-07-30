@@ -1,13 +1,13 @@
 package config
 
 import (
-	"os"
 	"testing"
 	"time"
 )
 
 func TestLoadRequired(t *testing.T) {
-	os.Clearenv()
+	t.Setenv("DISCORD_TOKEN", "")
+	t.Setenv("DISCORD_APPLICATION_ID", "")
 	_, err := Load()
 	if err == nil {
 		t.Error("expected error for missing token")
@@ -15,9 +15,8 @@ func TestLoadRequired(t *testing.T) {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	os.Clearenv()
-	os.Setenv("DISCORD_TOKEN", "test-token")
-	os.Setenv("DISCORD_APPLICATION_ID", "123456")
+	t.Setenv("DISCORD_TOKEN", "test-token")
+	t.Setenv("DISCORD_APPLICATION_ID", "123456")
 
 	cfg, err := Load()
 	if err != nil {
@@ -34,9 +33,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestMustParseSnowflakeID(t *testing.T) {
-	id := MustParseSnowflakeID("123456789")
-	if id != 123456789 {
-		t.Errorf("id = %d, want 123456789", id)
+func TestLoadInvalidGuildID(t *testing.T) {
+	t.Setenv("DISCORD_TOKEN", "tok")
+	t.Setenv("DISCORD_APPLICATION_ID", "123")
+	t.Setenv("GUILD_ID", "not-a-number")
+	_, err := Load()
+	if err == nil {
+		t.Error("expected error for invalid guild ID")
 	}
 }

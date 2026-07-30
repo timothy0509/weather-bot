@@ -46,33 +46,28 @@ type StringSet struct {
 
 // T returns the translation for the given language.
 // For bilingual mode, English and Traditional Chinese are shown side-by-side.
+// Falls back to English if the requested language has an empty translation.
 func (s StringSet) T(lang Language) string {
+	var result string
 	switch lang {
 	case EN:
-		return s.EN
+		result = s.EN
 	case TC:
-		return s.TC
+		result = s.TC
 	case SC:
-		return s.SC
+		result = s.SC
 	case Bilingual:
-		return s.EN + " / " + s.TC
+		en := s.EN
+		tc := s.TC
+		if tc == "" {
+			tc = en
+		}
+		return en + " / " + tc
 	default:
+		result = s.EN
+	}
+	if result == "" {
 		return s.EN
 	}
-}
-
-// Format bilingual returns a bilingual label/value string.
-func Format(label, valueEn, valueTC string, lang Language) string {
-	switch lang {
-	case EN:
-		return label + ": " + valueEn
-	case TC:
-		return label + "：" + valueTC
-	case SC:
-		return label + "：" + valueTC
-	case Bilingual:
-		return label + " / " + label + "：" + valueEn + " / " + valueTC
-	default:
-		return label + ": " + valueEn
-	}
+	return result
 }

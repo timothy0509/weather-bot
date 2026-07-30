@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"weather-bot/internal/bot"
 	"weather-bot/internal/config"
@@ -37,7 +36,6 @@ func main() {
 		logger.Error("failed to create bot", slog.Any("err", err))
 		os.Exit(1)
 	}
-	defer b.Close()
 
 	b.RegisterHandlers()
 
@@ -67,6 +65,7 @@ func main() {
 	<-sc
 
 	logger.Info("shutting down")
-	_ = b.Session.Close()
-	time.Sleep(100 * time.Millisecond)
+	cancel()
+	mon.Wait()
+	_ = b.Close()
 }

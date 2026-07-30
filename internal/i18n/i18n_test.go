@@ -46,3 +46,25 @@ func TestIsValid(t *testing.T) {
 		t.Error("expected fr to be invalid")
 	}
 }
+
+func TestAllTranslationsPresent(t *testing.T) {
+	for key, s := range M {
+		if s.EN == "" {
+			t.Errorf("key %q has empty EN translation", key)
+		}
+		if s.TC == "" {
+			t.Errorf("key %q has empty TC translation", key)
+		}
+		if s.SC == "" {
+			t.Errorf("key %q has empty SC translation", key)
+		}
+	}
+}
+
+func TestFallbackToEnglish(t *testing.T) {
+	M["__test_key"] = StringSet{EN: "english", TC: "", SC: "simplified"}
+	defer delete(M, "__test_key")
+	if got := T("__test_key", TC); got != "english" {
+		t.Errorf("expected fallback to EN, got %q", got)
+	}
+}

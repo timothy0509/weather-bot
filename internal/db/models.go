@@ -73,42 +73,78 @@ func (db *DB) SetGuildSettings(gs *GuildSettings) error {
 
 // SetLanguage updates the language for a guild.
 func (db *DB) SetLanguage(guildID, language string) error {
-	gs, err := db.GetGuildSettings(guildID)
+	_, err := db.Exec(
+		`INSERT INTO guild_settings (guild_id, language) VALUES (?, 'en') ON CONFLICT(guild_id) DO NOTHING`,
+		guildID,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("set language (insert): %w", err)
 	}
-	gs.Language = language
-	return db.SetGuildSettings(gs)
+	_, err = db.Exec(
+		`UPDATE guild_settings SET language = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?`,
+		language, guildID,
+	)
+	if err != nil {
+		return fmt.Errorf("set language: %w", err)
+	}
+	return nil
 }
 
 // SetAlertChannel updates the alert channel for a guild.
 func (db *DB) SetAlertChannel(guildID, channelID string) error {
-	gs, err := db.GetGuildSettings(guildID)
+	_, err := db.Exec(
+		`INSERT INTO guild_settings (guild_id) VALUES (?) ON CONFLICT(guild_id) DO NOTHING`,
+		guildID,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("set alert channel (insert): %w", err)
 	}
-	gs.AlertChannelID = sql.NullString{String: channelID, Valid: channelID != ""}
-	return db.SetGuildSettings(gs)
+	_, err = db.Exec(
+		`UPDATE guild_settings SET alert_channel_id = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?`,
+		channelID, guildID,
+	)
+	if err != nil {
+		return fmt.Errorf("set alert channel: %w", err)
+	}
+	return nil
 }
 
 // SetTideStation updates the default tide station for a guild.
 func (db *DB) SetTideStation(guildID, station string) error {
-	gs, err := db.GetGuildSettings(guildID)
+	_, err := db.Exec(
+		`INSERT INTO guild_settings (guild_id) VALUES (?) ON CONFLICT(guild_id) DO NOTHING`,
+		guildID,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("set tide station (insert): %w", err)
 	}
-	gs.TideStation = station
-	return db.SetGuildSettings(gs)
+	_, err = db.Exec(
+		`UPDATE guild_settings SET tide_station = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?`,
+		station, guildID,
+	)
+	if err != nil {
+		return fmt.Errorf("set tide station: %w", err)
+	}
+	return nil
 }
 
 // SetBotStatusEnabled updates whether the bot status is enabled.
 func (db *DB) SetBotStatusEnabled(guildID string, enabled bool) error {
-	gs, err := db.GetGuildSettings(guildID)
+	_, err := db.Exec(
+		`INSERT INTO guild_settings (guild_id) VALUES (?) ON CONFLICT(guild_id) DO NOTHING`,
+		guildID,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("set bot status (insert): %w", err)
 	}
-	gs.BotStatusEnabled = enabled
-	return db.SetGuildSettings(gs)
+	_, err = db.Exec(
+		`UPDATE guild_settings SET bot_status_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?`,
+		enabled, guildID,
+	)
+	if err != nil {
+		return fmt.Errorf("set bot status: %w", err)
+	}
+	return nil
 }
 
 // AllGuildSettings returns settings for all guilds.
@@ -211,7 +247,13 @@ func (db *DB) LatestWarningStates() ([]*WarningState, error) {
 func (db *DB) SaveWarningState(code, subtype, actionCode, issueTime, updateTime string) error {
 	_, err := db.Exec(
 		`INSERT INTO warning_state (code, subtype, action_code, issue_time, update_time, last_seen)
-		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(code) DO UPDATE SET
+			 subtype = excluded.subtype,
+			 action_code = excluded.action_code,
+			 issue_time = excluded.issue_time,
+			 update_time = excluded.update_time,
+			 last_seen = CURRENT_TIMESTAMP`,
 		code, subtype, actionCode, issueTime, updateTime,
 	)
 	if err != nil {
@@ -238,11 +280,38 @@ func (db *DB) GetLatestTipsUpdateTime() (string, error) {
 // SaveTipsUpdateTime records a tips update time.
 func (db *DB) SaveTipsUpdateTime(updateTime string) error {
 	_, err := db.Exec(
-		`INSERT INTO tips_state (update_time, last_seen) VALUES (?, CURRENT_TIMESTAMP)`,
+		`INSERT INTO tips_state (update_time, last_seen) VALUES (?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(update_time) DO UPDATE SET last_seen = CURRENT_TIMESTAMP`,
 		updateTime,
 	)
 	if err != nil {
 		return fmt.Errorf("save tips update time: %w", err)
+	}
+	return nil
+}
+
+// CleanupOldStates removes stale warning and tips state rows.
+func (db *DB) CleanupOldStates() error {
+	_, err := db.Exec(
+		`DELETE FROM warning_state WHERE last_seen < datetime('now', '-30 days')`,
+	)
+	if err != nil {
+		return fmt.Errorf("cleanup warning state: %w", err)
+	}
+	_, err = db.Exec(
+		`DELETE FROM tips_state WHERE last_seen < datetime('now', '-7 days')`,
+	)
+	if err != nil {
+		return fmt.Errorf("cleanup tips state: %w", err)
+	}
+	return nil
+}
+
+// DeleteGuildSettings removes settings for a guild.
+func (db *DB) DeleteGuildSettings(guildID string) error {
+	_, err := db.Exec(`DELETE FROM guild_settings WHERE guild_id = ?`, guildID)
+	if err != nil {
+		return fmt.Errorf("delete guild settings: %w", err)
 	}
 	return nil
 }

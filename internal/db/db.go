@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -15,15 +16,38 @@ type DB struct {
 
 // Open opens the SQLite database and runs migrations.
 func Open(path string) (*DB, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, 0600)
+		if err != nil {
+			return nil, fmt.Errorf("create db file: %w", err)
+		}
+		f.Close()
+	}
+
 	conn, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+
 	if err := conn.Ping(); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+
+	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("set WAL mode: %w", err)
+	}
+	if _, err := conn.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
+	}
+
 	db := &DB{conn: conn}
 	if err := db.migrate(); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
@@ -65,6 +89,9 @@ CREATE TABLE IF NOT EXISTS tips_state (
 
 CREATE INDEX IF NOT EXISTS idx_warning_state_code ON warning_state(code);
 CREATE INDEX IF NOT EXISTS idx_tips_state_update_time ON tips_state(update_time);
+CREATE UNIQUE INDEX IF NOT EXISTS udx_tips_state_update_time ON tips_state(update_time);
+
+CREATE UNIQUE INDEX IF NOT EXISTS udx_warning_state_code ON warning_state(code);
 `
 	if _, err := db.conn.Exec(schema); err != nil {
 		return err

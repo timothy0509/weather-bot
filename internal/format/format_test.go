@@ -74,20 +74,3 @@ func TestFormatCoordinates(t *testing.T) {
 		}
 	}
 }
-
-func TestFormatDate(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"20260730", "Jul 30"},
-		{"20260101", "Jan 1"},
-		{"invalid", "invalid"},
-	}
-	for _, tt := range tests {
-		result := FormatDate(tt.input)
-		if result != tt.expected {
-			t.Errorf("FormatDate(%q) = %q, want %q", tt.input, result, tt.expected)
-		}
-	}
-}

@@ -2,14 +2,6 @@ package hko
 
 import "fmt"
 
-// TopReadings returns the first n readings from a group.
-func TopReadings(rg ReadingGroup, n int) []Reading {
-	if n > len(rg.Data) {
-		return rg.Data
-	}
-	return rg.Data[:n]
-}
-
 // ReadingByPlace returns the first reading matching a place.
 func ReadingByPlace(rg ReadingGroup, place string) (Reading, bool) {
 	for _, r := range rg.Data {

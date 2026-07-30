@@ -40,6 +40,11 @@ func Load(envFiles ...string) (*Config, error) {
 	if cfg.ApplicationID == "" {
 		return nil, fmt.Errorf("DISCORD_APPLICATION_ID is required")
 	}
+	if cfg.GuildID != "" {
+		if _, err := strconv.ParseUint(cfg.GuildID, 10, 64); err != nil {
+			return nil, fmt.Errorf("GUILD_ID must be a numeric snowflake ID, got %q", cfg.GuildID)
+		}
+	}
 
 	cfg.WarningInterval = parseDuration("WARNING_POLL_INTERVAL", 90*time.Second)
 	cfg.TipsInterval = parseDuration("TIPS_POLL_INTERVAL", 5*time.Minute)
@@ -73,13 +78,4 @@ func parseLogLevel(s string) slog.Level {
 		return slog.LevelInfo
 	}
 	return lvl
-}
-
-// MustParseSnowflakeID parses an ID string to a uint64.
-func MustParseSnowflakeID(s string) uint64 {
-	id, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		panic(fmt.Sprintf("invalid snowflake ID %q: %v", s, err))
-	}
-	return id
 }
