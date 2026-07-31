@@ -52,7 +52,6 @@ Required variables:
 
 Optional variables:
 - `GUILD_ID` — Discord server ID (leave empty for global commands)
-- `DATABASE_PATH` — SQLite database path (default: `./weather-bot.db`)
 - `WARNING_POLL_INTERVAL` — Warning check interval (default: `90s`)
 - `TIPS_POLL_INTERVAL` — Tips check interval (default: `5m`)
 - `STATUS_POLL_INTERVAL` — Status update interval (default: `10m`)
