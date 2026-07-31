@@ -18,9 +18,12 @@ WORKDIR /app
 RUN apk --no-cache add ca-certificates
 
 COPY --from=builder /app/weather-bot .
+COPY docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
 
 ENV DATABASE_PATH=/data/weather-bot.db
 
 VOLUME ["/data"]
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["./weather-bot"]

@@ -24,6 +24,7 @@ func main() {
 		Level: cfg.LogLevel,
 	}))
 
+	logger.Info("opening database", slog.String("path", cfg.DatabasePath))
 	database, err := db.Open(cfg.DatabasePath)
 	if err != nil {
 		logger.Error("failed to open database", slog.Any("err", err))

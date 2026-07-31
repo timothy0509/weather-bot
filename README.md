@@ -68,7 +68,7 @@ docker compose up -d
 
 The compose file:
 - Builds the image from the local Dockerfile
-- Mounts `./data` directory for SQLite database persistence
+- Uses a named Docker volume (`weather-bot-data`) for SQLite database persistence
 - Loads environment variables from `.env`
 - Automatically restarts the container unless manually stopped
 
@@ -78,11 +78,14 @@ View logs:
 docker compose logs -f
 ```
 
-Update to latest code:
+Update to latest code (data is preserved):
 
 ```bash
+git pull
 docker compose up -d --build
 ```
+
+**Note:** Your guild settings and data are stored in a Docker named volume and will persist across container rebuilds. The volume is created automatically on first run.
 
 ### Using Docker Only
 
@@ -92,13 +95,14 @@ Build the image:
 docker build -t weather-bot .
 ```
 
-Run the container:
+Run the container with a named volume:
 
 ```bash
+docker volume create weather-bot-data
 docker run -d \
   --name weather-bot \
   --env-file .env \
-  -v $(pwd)/data:/data \
+  -v weather-bot-data:/data \
   --restart unless-stopped \
   weather-bot
 ```
@@ -109,11 +113,18 @@ View logs:
 docker logs -f weather-bot
 ```
 
+**Note:** Use `docker stop weather-bot` to stop the container (preserves data). Avoid `docker rm -v weather-bot` as the `-v` flag removes the volume and all data.
+
 ### Data Persistence
 
-The bot stores its SQLite database in the `/data` directory inside the container. The Docker Compose setup mounts this to `./data` on your host machine, ensuring your data persists across container restarts and updates.
+The bot stores its SQLite database in the `/data` directory inside the container. Docker Compose uses a **named volume** (`weather-bot-data`) to persist this data, ensuring your guild settings and data survive container rebuilds and updates.
 
-**Note:** Inside the container, `DATABASE_PATH` is automatically set to `/data/weather-bot.db`.
+**Inside the container:** `DATABASE_PATH` is automatically set to `/data/weather-bot.db`
+
+**Managing the volume:**
+- View volume: `docker volume inspect weather-bot-data`
+- List volumes: `docker volume ls`
+- ⚠️ **Warning:** Running `docker compose down -v` will DELETE the volume and all data. Use `docker compose down` (without `-v`) to stop containers while preserving data.
 
 ## Commands
 
