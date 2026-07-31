@@ -2,6 +2,7 @@
 weather-bot.db
 weather-bot.db-shm
 weather-bot.db-wal
+/data
 *.exe
 *.dll
 *.so

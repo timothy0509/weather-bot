@@ -7,5 +7,11 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data:/data
+      # Persistent volume for SQLite database - survives container rebuilds
+      - weather-bot-data:/data
     restart: unless-stopped
+
+volumes:
+  weather-bot-data:
+    # Named volume ensures data persists across container rebuilds
+    name: weather-bot-data
