@@ -26,6 +26,8 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		}
 	case discordgo.InteractionApplicationCommandAutocomplete:
 		b.handleAutocomplete(i)
+	case discordgo.InteractionMessageComponent:
+		b.handleSetupComponent(i)
 	}
 }
 

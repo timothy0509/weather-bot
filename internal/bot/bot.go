@@ -142,3 +142,24 @@ func (b *Bot) followUpError(i *discordgo.InteractionCreate, content string) {
 		b.Logger.Error("failed to edit follow-up error", slog.Any("err", err))
 	}
 }
+
+// hasManageServerPermission checks if the interaction user has Manage Server permission.
+func (b *Bot) hasManageServerPermission(i *discordgo.InteractionCreate) bool {
+	if i.Member == nil {
+		return false
+	}
+	return i.Member.Permissions&discordgo.PermissionManageServer != 0
+}
+
+// respondComponentEphemeral sends an ephemeral error message for component interactions.
+func (b *Bot) respondComponentEphemeral(i *discordgo.InteractionCreate, content string) {
+	if err := b.Session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	}); err != nil {
+		b.Logger.Error("failed to respond component ephemeral", slog.Any("err", err))
+	}
+}

@@ -307,6 +307,61 @@ var M = map[string]StringSet{
 		TC: "生效時間",
 		SC: "生效时间",
 	},
+	"btn_language": {
+		EN: "Language",
+		TC: "語言",
+		SC: "语言",
+	},
+	"btn_alert_channel": {
+		EN: "Alert Channel",
+		TC: "提示頻道",
+		SC: "提示频道",
+	},
+	"btn_tide_station": {
+		EN: "Tide Station",
+		TC: "潮汐站",
+		SC: "潮汐站",
+	},
+	"btn_bot_status": {
+		EN: "Bot Status",
+		TC: "機械人狀態",
+		SC: "机器人状态",
+	},
+	"btn_back": {
+		EN: "Back",
+		TC: "返回",
+		SC: "返回",
+	},
+	"btn_enable": {
+		EN: "Enable",
+		TC: "啟用",
+		SC: "启用",
+	},
+	"btn_disable": {
+		EN: "Disable",
+		TC: "停用",
+		SC: "停用",
+	},
+	"select_language_prompt": {
+		EN: "Select a language",
+		TC: "選擇語言",
+		SC: "选择语言",
+	},
+	"select_tide_prompt": {
+		EN: "Select a tide station",
+		TC: "選擇潮汐站",
+		SC: "选择潮汐站",
+	},
+	"select_channel_prompt": {
+		EN: "Select an alert channel",
+		TC: "選擇提示頻道",
+		SC: "选择提示频道",
+	},
+	"current_setting": {
+		EN: "Current",
+		TC: "目前",
+		SC: "目前",
+	},
 }
 
 // T looks up a translation by key.
