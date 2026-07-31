@@ -75,11 +75,32 @@ func (m *Monitor) Wait() {
 	m.wg.Wait()
 }
 
+func (m *Monitor) waitForGuilds(ctx context.Context, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		m.session.State.RLock()
+		count := len(m.session.State.Guilds)
+		m.session.State.RUnlock()
+		if count > 0 {
+			m.logger.Debug("guilds populated", slog.Int("count", count))
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	m.logger.Warn("timed out waiting for guilds", slog.Duration("timeout", timeout))
+	return false
+}
+
 func (m *Monitor) warningLoop(ctx context.Context) {
 	ticker := time.NewTicker(m.cfg.Warning)
 	defer ticker.Stop()
 	cleanupTicker := time.NewTicker(24 * time.Hour)
 	defer cleanupTicker.Stop()
+	m.waitForGuilds(ctx, 10*time.Second)
 	m.checkWarnings()
 	for {
 		select {
@@ -98,6 +119,7 @@ func (m *Monitor) warningLoop(ctx context.Context) {
 func (m *Monitor) tipsLoop(ctx context.Context) {
 	ticker := time.NewTicker(m.cfg.Tips)
 	defer ticker.Stop()
+	m.waitForGuilds(ctx, 10*time.Second)
 	m.checkTips()
 	for {
 		select {
@@ -112,6 +134,7 @@ func (m *Monitor) tipsLoop(ctx context.Context) {
 func (m *Monitor) statusLoop(ctx context.Context) {
 	ticker := time.NewTicker(m.cfg.Status)
 	defer ticker.Stop()
+	m.waitForGuilds(ctx, 10*time.Second)
 	m.updateStatus()
 	for {
 		select {
@@ -332,7 +355,6 @@ func (m *Monitor) checkTips() {
 }
 
 func (m *Monitor) updateStatus() {
-	statusEnabled := false
 	m.session.State.RLock()
 	guilds := make([]string, len(m.session.State.Guilds))
 	for i, g := range m.session.State.Guilds {
@@ -340,6 +362,12 @@ func (m *Monitor) updateStatus() {
 	}
 	m.session.State.RUnlock()
 
+	if len(guilds) == 0 {
+		m.logger.Debug("status update skipped: no guilds")
+		return
+	}
+
+	statusEnabled := false
 	for _, gid := range guilds {
 		gs, err := m.db.GetGuildSettings(gid)
 		if err != nil {
@@ -352,6 +380,7 @@ func (m *Monitor) updateStatus() {
 		}
 	}
 	if !statusEnabled {
+		m.logger.Debug("status update skipped: not enabled in any guild", slog.Int("guilds_checked", len(guilds)))
 		return
 	}
 
@@ -379,5 +408,7 @@ func (m *Monitor) updateStatus() {
 
 	if err := m.session.UpdateGameStatus(0, status); err != nil {
 		m.logger.Warn("failed to update bot status", slog.Any("err", err))
+	} else {
+		m.logger.Debug("bot status updated", slog.String("status", status))
 	}
 }
