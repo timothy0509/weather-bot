@@ -159,7 +159,7 @@ func (m *Monitor) checkWarnings() {
 		} else if state.ActionCode == "CANCEL" && actionCode != "CANCEL" {
 			shouldAlert = true
 			alertType = "warning_issued"
-		} else if state.ActionCode != actionCode || state.Subtype.String != w.Subtype {
+		} else if state.ActionCode != actionCode || state.Subtype.String != w.Code {
 			shouldAlert = true
 			if actionCode == "CANCEL" {
 				alertType = "warning_cancelled"
@@ -172,7 +172,7 @@ func (m *Monitor) checkWarnings() {
 			m.sendWarningAlert(code, w, alertType)
 		}
 
-		if err := m.db.SaveWarningState(code, w.Subtype, actionCode, w.IssueTime, w.UpdateTime); err != nil {
+		if err := m.db.SaveWarningState(code, w.Code, actionCode, w.IssueTime, w.UpdateTime); err != nil {
 			m.logger.Warn("failed to save warning state", slog.Any("err", err))
 		}
 	}
@@ -227,7 +227,9 @@ func (m *Monitor) sendWarningAlert(code string, w *hko.WarningSummaryWarning, al
 			var contents []string
 			for _, d := range info.Details {
 				if strings.HasPrefix(d.WarningStatementCode, code) {
-					contents = append(contents, d.Contents...)
+					if w.Code == code || d.Subtype == w.Code {
+						contents = append(contents, d.Contents...)
+					}
 				}
 			}
 			if len(contents) > 0 {
@@ -242,8 +244,13 @@ func (m *Monitor) sendWarningAlert(code string, w *hko.WarningSummaryWarning, al
 			footerText = fmt.Sprintf("%s %s", i18n.T("in_effect_since", lang), format.FormatTime(w.IssueTime))
 		}
 
+		warningTitle := fmt.Sprintf("%s: %s", title, w.Name)
+		if w.Type != "" && w.Type != w.Name {
+			warningTitle = fmt.Sprintf("%s: %s (%s)", title, w.Name, w.Type)
+		}
+
 		embed := &discordgo.MessageEmbed{
-			Title:       fmt.Sprintf("%s: %s", title, w.Name),
+			Title:       warningTitle,
 			Description: description,
 			Color:       color,
 			Footer: &discordgo.MessageEmbedFooter{
