@@ -147,6 +147,22 @@ The bot stores its SQLite database in the `/data` directory inside the container
 - `/setup tide-station <code>` — Set default tide station
 - `/setup status <on|off>` — Toggle bot activity status
 
+## Data Sources
+
+All weather data is provided by the [Hong Kong Observatory (HKO) Open Data API](https://data.weather.gov.hk/weatherAPI/doc/HKO_Open_Data_API_Documentation.pdf). No API key is required.
+
+| Endpoint | Description |
+|---|---|
+| `weather.php?dataType=rhrread` | Current weather conditions (temperature, humidity, rainfall, UV, warnings) |
+| `weather.php?dataType=fnd` | 9-day weather forecast |
+| `weather.php?dataType=warnsum` | Active weather warnings summary |
+| `weather.php?dataType=warningInfo` | Detailed warning bulletins |
+| `weather.php?dataType=swt` | Special weather tips |
+| `weather.php?dataType=hourlyRainfall` | Hourly rainfall data from automatic stations |
+| `earthquake.php?dataType=qem` | Recent earthquake reports |
+| `opendata.php?dataType=HHOT` | Hourly astronomical tide heights (14 stations) |
+| `lunardate.php` | Gregorian-to-Lunar calendar conversion |
+
 ## Environment Variables
 
 See `.env.example`.
